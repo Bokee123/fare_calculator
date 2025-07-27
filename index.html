@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Fare Calculator</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+  <style>
+    body {
+      margin: 0;
+      font-family: sans-serif;
+    }
+    #map {
+      height: 50vh;
+      width: 100%;
+    }
+    .panel {
+      padding: 1em;
+    }
+    input, button {
+      width: 100%;
+      padding: 0.6em;
+      margin-bottom: 0.5em;
+      font-size: 1em;
+    }
+    #trips {
+      margin-top: 1em;
+      max-height: 200px;
+      overflow-y: auto;
+      background: #f1f1f1;
+      padding: 0.5em;
+    }
+  </style>
+    <!-- Geocoder plugin -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet-control-geocoder/dist/Control.Geocoder.css" />
+<script src="https://unpkg.com/leaflet-control-geocoder/dist/Control.Geocoder.js"></script>
+
+</head>
+<body>
+
+<div id="map"></div>
+<div class="panel">
+  <button onclick="useMyLocation()">📍 Use My Location as Start</button>
+  <p><strong>Distance:</strong> <span id="distance">0</span> km</p>
+  <p><strong>Fare:</strong> ₱<span id="fare">0</span></p>
+
+  <input type="number" id="customerMoney" placeholder="Customer gave (₱)">
+  <button onclick="calculateChange()">Calculate Change</button>
+  <p><strong>Change:</strong> ₱<span id="change">0</span></p>
+
+  <button onclick="saveTrip()">💾 Save Trip</button>
+
+  <h3>Past Trips</h3>
+  <div id="trips"></div>
+</div>
+
+<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+<script>
+// Initialize map
+// === Map Setup for Butuan City ===
+let map = L.map('map').setView([8.9475, 125.5406], 13);
+
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  attribution: '&copy; OpenStreetMap contributors'
+}).addTo(map);
+
+// Lock map to Butuan area
+map.setMaxBounds([
+  [8.9000, 125.4800],
+  [8.9900, 125.6000]
+]);
+
+
+
+
+let markers = [];
+let routeLine = null;
+let distanceInKm = 0;
+
+// Handle map click
+map.on('click', function(e) {
+  if (markers.length >= 2) {
+    resetRoute();
+  }
+
+  let marker = L.marker(e.latlng).addTo(map);
+  markers.push(marker);
+
+  if (markers.length === 2) {
+    drawRoute();
+  }
+});
+
+// Use geolocation
+function useMyLocation() {
+  if (navigator.geolocation) {
+    navigator.geolocation.getCurrentPosition(pos => {
+      let latlng = [pos.coords.latitude, pos.coords.longitude];
+      if (markers.length >= 2) resetRoute();
+      let marker = L.marker(latlng).addTo(map);
+      markers.push(marker);
+      map.setView(latlng, 14);
+      if (markers.length === 2) drawRoute();
+    }, () => alert("Unable to get location."));
+  } else {
+    alert("Geolocation not supported.");
+  }
+}
+
+// Calculate and draw route
+function drawRoute() {
+  let latlngs = [markers[0].getLatLng(), markers[1].getLatLng()];
+  routeLine = L.polyline(latlngs, { color: 'blue' }).addTo(map);
+  distanceInKm = getDistanceFromLatLonInKm(
+    latlngs[0].lat, latlngs[0].lng,
+    latlngs[1].lat, latlngs[1].lng
+  ).toFixed(2);
+
+  document.getElementById("distance").textContent = distanceInKm;
+  document.getElementById("fare").textContent = calculateFare(distanceInKm);
+  document.getElementById("change").textContent = "0";
+}
+
+// Fare formula
+function calculateFare(km) {
+  const baseFare = 13;
+  const ratePerKm = 3;
+  return (baseFare + km * ratePerKm).toFixed(2);
+}
+
+// Change calculator
+function calculateChange() {
+  let customerMoney = parseFloat(document.getElementById("customerMoney").value);
+  let fare = parseFloat(document.getElementById("fare").textContent);
+  if (isNaN(customerMoney) || isNaN(fare)) return;
+  let change = (customerMoney - fare).toFixed(2);
+  document.getElementById("change").textContent = change;
+}
+
+// Save trip to localStorage
+function saveTrip() {
+  if (distanceInKm === 0) return;
+  const fare = document.getElementById("fare").textContent;
+  const date = new Date().toLocaleString();
+  let trip = { date, distance: distanceInKm, fare };
+  let trips = JSON.parse(localStorage.getItem("trips") || "[]");
+  trips.unshift(trip);
+  localStorage.setItem("trips", JSON.stringify(trips));
+  displayTrips();
+  resetRoute();
+}
+
+// Show saved trips
+function displayTrips() {
+  let trips = JSON.parse(localStorage.getItem("trips") || "[]");
+  let html = trips.map(t =>
+    `<p><strong>${t.date}</strong><br>Distance: ${t.distance} km | Fare: $${t.fare}</p>`
+  ).join("");
+  document.getElementById("trips").innerHTML = html || "<p>No trips yet.</p>";
+}
+
+// Reset everything
+function resetRoute() {
+  markers.forEach(m => map.removeLayer(m));
+  if (routeLine) map.removeLayer(routeLine);
+  markers = [];
+  routeLine = null;
+  distanceInKm = 0;
+  document.getElementById("distance").textContent = "0";
+  document.getElementById("fare").textContent = "0";
+  document.getElementById("change").textContent = "0";
+  document.getElementById("customerMoney").value = "";
+}
+
+// Haversine formula
+function getDistanceFromLatLonInKm(lat1, lon1, lat2, lon2) {
+  const R = 6371;
+  const dLat = deg2rad(lat2 - lat1);
+  const dLon = deg2rad(lon2 - lon1);
+  const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+            Math.cos(deg2rad(lat1)) * Math.cos(deg2rad(lat2)) *
+            Math.sin(dLon/2) * Math.sin(dLon/2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+}
+function deg2rad(deg) {
+  return deg * (Math.PI / 180);
+}
+
+// Init
+displayTrips();
+</script>
+</body>
+</html>
