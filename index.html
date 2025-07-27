@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Fare Calculator</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet-control-geocoder/dist/Control.Geocoder.css" />
   <style>
     body {
       margin: 0;
@@ -31,15 +32,15 @@
       padding: 0.5em;
     }
   </style>
-    <!-- Geocoder plugin -->
-<link rel="stylesheet" href="https://unpkg.com/leaflet-control-geocoder/dist/Control.Geocoder.css" />
-<script src="https://unpkg.com/leaflet-control-geocoder/dist/Control.Geocoder.js"></script>
-
 </head>
 <body>
 
 <div id="map"></div>
 <div class="panel">
+
+  <!-- NEW: Destination Search Bar -->
+  <input type="text" id="destinationSearch" placeholder="Search destination and press Enter">
+
   <button onclick="useMyLocation()">📍 Use My Location as Start</button>
   <p><strong>Distance:</strong> <span id="distance">0</span> km</p>
   <p><strong>Fare:</strong> ₱<span id="fare">0</span></p>
@@ -54,24 +55,19 @@
   <div id="trips"></div>
 </div>
 
+<!-- Scripts -->
 <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet-control-geocoder/dist/Control.Geocoder.js"></script>
 <script>
-// Initialize map
-// === Map Setup for Butuan City ===
 let map = L.map('map').setView([8.9475, 125.5406], 13);
-
 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
   attribution: '&copy; OpenStreetMap contributors'
 }).addTo(map);
 
-// Lock map to Butuan area
 map.setMaxBounds([
   [8.9000, 125.4800],
   [8.9900, 125.6000]
 ]);
-
-
-
 
 let markers = [];
 let routeLine = null;
@@ -79,35 +75,32 @@ let distanceInKm = 0;
 
 // Handle map click
 map.on('click', function(e) {
-  if (markers.length >= 2) {
-    resetRoute();
-  }
-
+  if (markers.length >= 2) resetRoute();
   let marker = L.marker(e.latlng).addTo(map);
   markers.push(marker);
-
-  if (markers.length === 2) {
-    drawRoute();
-  }
+  if (markers.length === 2) drawRoute();
 });
 
-// Use geolocation
+// Geolocation
 function useMyLocation() {
   if (navigator.geolocation) {
     navigator.geolocation.getCurrentPosition(pos => {
       let latlng = [pos.coords.latitude, pos.coords.longitude];
       if (markers.length >= 2) resetRoute();
-      let marker = L.marker(latlng).addTo(map);
+      let marker = L.marker(latlng).addTo(map).bindPopup("Start").openPopup();
       markers.push(marker);
       map.setView(latlng, 14);
       if (markers.length === 2) drawRoute();
-    }, () => alert("Unable to get location."));
+    }, err => {
+      console.error(err);
+      alert("Unable to get location: " + err.message);
+    });
   } else {
     alert("Geolocation not supported.");
   }
 }
 
-// Calculate and draw route
+// Draw route and calculate fare
 function drawRoute() {
   let latlngs = [markers[0].getLatLng(), markers[1].getLatLng()];
   routeLine = L.polyline(latlngs, { color: 'blue' }).addTo(map);
@@ -121,14 +114,12 @@ function drawRoute() {
   document.getElementById("change").textContent = "0";
 }
 
-// Fare formula
 function calculateFare(km) {
   const baseFare = 13;
   const ratePerKm = 3;
   return (baseFare + km * ratePerKm).toFixed(2);
 }
 
-// Change calculator
 function calculateChange() {
   let customerMoney = parseFloat(document.getElementById("customerMoney").value);
   let fare = parseFloat(document.getElementById("fare").textContent);
@@ -137,7 +128,6 @@ function calculateChange() {
   document.getElementById("change").textContent = change;
 }
 
-// Save trip to localStorage
 function saveTrip() {
   if (distanceInKm === 0) return;
   const fare = document.getElementById("fare").textContent;
@@ -150,16 +140,14 @@ function saveTrip() {
   resetRoute();
 }
 
-// Show saved trips
 function displayTrips() {
   let trips = JSON.parse(localStorage.getItem("trips") || "[]");
   let html = trips.map(t =>
-    `<p><strong>${t.date}</strong><br>Distance: ${t.distance} km | Fare: $${t.fare}</p>`
+    `<p><strong>${t.date}</strong><br>Distance: ${t.distance} km | Fare: ₱${t.fare}</p>`
   ).join("");
   document.getElementById("trips").innerHTML = html || "<p>No trips yet.</p>";
 }
 
-// Reset everything
 function resetRoute() {
   markers.forEach(m => map.removeLayer(m));
   if (routeLine) map.removeLayer(routeLine);
@@ -187,8 +175,36 @@ function deg2rad(deg) {
   return deg * (Math.PI / 180);
 }
 
-// Init
+// Geocoder integration for destination search
+const geocoder = L.Control.Geocoder.nominatim();
+
+document.getElementById('destinationSearch').addEventListener('keypress', function(e) {
+  if (e.key === 'Enter') {
+    const query = e.target.value;
+    if (!query) return;
+
+    geocoder.geocode(query, function(results) {
+      if (results.length === 0) {
+        alert("Destination not found.");
+        return;
+      }
+
+      const latlng = results[0].center;
+
+      if (markers.length >= 2) resetRoute();
+
+      const marker = L.marker(latlng).addTo(map).bindPopup("Destination").openPopup();
+      markers.push(marker);
+      map.setView(latlng, 14);
+
+      if (markers.length === 2) drawRoute();
+    });
+  }
+});
+
+// Load trips on startup
 displayTrips();
 </script>
+
 </body>
 </html>
